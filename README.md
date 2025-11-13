@@ -11,11 +11,11 @@ git clonehttps://github.com/erjanakmahato/nhs-chatbot
 ### STEP 01- Create a conda environment after opening the repository
 
 ```bash
-conda create -n medibot python=3.10 -y
+conda create -n nhs-chatbot python=3.12 -y
 ```
 
 ```bash
-conda activate medibot
+conda activate nhs-chatbot
 ```
 
 
