@@ -1,146 +1,130 @@
-# nhs-chatbot
+# NHS Chatbot (Gemini RAG)
 
-# How to run?
-### STEPS:
+Gemini-powered Retrieval-Augmented Generation (RAG) chatbot that answers medical questions by combining NHS PDF guidance, Pinecone for vector search, and a Flask frontend. The backend automatically cycles through a list of Gemini models (e.g., `gemini-pro`, `gemini-1.5-pro-latest`, `gemini-2.0-flash-exp`) to keep the chat experience smooth even when individual models hit quota limits.
 
-Clone the repository
+---
+
+## Features
+
+- **Medical RAG** – LangChain pulls relevant NHS snippets from Pinecone before calling Gemini.
+- **Automatic Gemini fallback** – rotates through several Gemini models and their `-latest` aliases when quotas or availability issues show up.
+- **Source citations** – chatbot responses include a "Sources" block listing the documents used.
+- **PDF ingestion** – hydrate Pinecone with local NHS PDFs using the provided embedding pipeline.
+- **Web UI** – Bootstrap chat experience (`templates/chat.html`) with typing indicators and resilient error handling.
+
+---
+
+## Architecture
+
+| Layer | Tech |
+| --- | --- |
+| Frontend | Flask + Bootstrap template (`templates/chat.html`, `static/style.css`) |
+| Retrieval store | Pinecone serverless index (`medical-chatbot`, cosine, 384-dim) |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` via `langchain-huggingface` |
+| LLM | Google Gemini (via `langchain-google-genai` with realtime fallback) |
+| Orchestration | LangChain RAG chain (`create_retrieval_chain`) |
+
+---
+
+## Prerequisites
+
+- Python **3.12**
+- Access to Google AI Studio (Gemini API key + quota)
+- Pinecone account (serverless index in `us-east-1`)
+- `git`, `pip`, optional `conda`
+
+---
+
+## Quick Start
 
 ```bash
-git clonehttps://github.com/erjanakmahato/nhs-chatbot
-```
-### STEP 01- Create a conda environment after opening the repository
+# 1. Clone
+git clone https://github.com/erjanakmahato/nhs-chatbot.git
+cd nhs-chatbot
 
-```bash
+# 2. Create & activate an environment (conda shown, use your preferred tool)
 conda create -n nhs-chatbot python=3.12 -y
-```
-
-```bash
 conda activate nhs-chatbot
-```
 
-
-### STEP 02- install the requirements
-```bash
+# 3. Install dependencies
 pip install -r requirements.txt
 ```
 
+### Configure environment variables
 
-### Create a `.env` file in the root directory and add your Pinecone & Google API credentials as follows:
+Create `.env` in the project root:
 
 ```ini
-PINECONE_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-GOOGLE_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-GEMINI_MODEL = "gemini-pro"
+PINECONE_API_KEY=your_pinecone_key
+GOOGLE_API_KEY=your_gemini_key
+# Optional: force a specific model; otherwise the app rotates through defaults
+GEMINI_MODEL=gemini-pro
 ```
 
-**Note:** 
-- `GEMINI_MODEL` is optional and defaults to `gemini-pro` (stable)
-- Other supported models: `gemini-1.5-pro`, `gemini-1.5-flash`
-- If you encounter model not found errors, try using `gemini-pro`
+> The app automatically tries `gemini-pro`, `gemini-1.5-pro[-latest]`, `gemini-1.5-flash[-latest]`, `gemini-2.0-flash-exp`, and `gemini-3-pro-preview`. Set `GEMINI_MODEL` only when you need to pin a specific model.
 
+---
+
+## Populate Pinecone
+
+### 1. Load NHS PDFs
+1. Drop your NHS PDFs into `data/` (the repo ships with `Medical_book.pdf` as an example).
+2. Run the ingestion script to split, embed, and upsert into Pinecone:
 
 ```bash
-# run the following command to store embeddings to pinecone
 python store_index.py
 ```
 
-### (Optional) Ingest YouTube video transcripts
-
-If the tutorial video references YouTube content you'd like to ground the chatbot on, you can pull the transcripts directly into the same Pinecone index:
+## Run the chatbot
 
 ```bash
-python ingest_youtube.py https://www.youtube.com/watch?v=SCZ0BZq-jqY
-```
-
-This script caches transcripts under `data/youtube_transcripts/` and pushes the chunks into the `medical-chatbot` index so Gemini can cite those videos alongside the NHS PDFs.
-
-```bash
-# Finally run the following command
 python app.py
 ```
 
-Now,
-```bash
-open up localhost:
+Visit `http://localhost:8080` and start chatting. The Flask logs show which Gemini model is active, retrieved context length, and any fallback activity.
+
+---
+
+## Troubleshooting
+
+| Issue | Fix |
+| --- | --- |
+| `ValueError: PINECONE_API_KEY...` | Ensure `.env` is created and the terminal session was restarted so `python-dotenv` can read it. |
+| Pinecone `Index not found` | Run `python store_index.py`; the script creates `medical-chatbot` automatically if missing. |
+| Gemini `ResourceExhausted / 429` | The app backs off, then automatically switches to the next Gemini model. If every model shows `limit: 0`, enable billing or request more quota in Google AI Studio. |
+| `models/<name> is not found for API version v1beta` | Google occasionally renames models with `-latest`. The app now tries both variants automatically; adjust `GEMINI_MODEL` only if necessary. |
+| Responses lack detail | Ensure your PDFs contain the info you need and consider increasing `search_kwargs={"k": 5}` in `app.py`. |
+
+---
+
+## Reference commands
+
+| Purpose | Command |
+| --- | --- |
+| Install deps | `pip install -r requirements.txt` |
+| Rebuild Pinecone index from PDFs | `python store_index.py` |
+| Start web app | `python app.py` |
+
+---
+
+## Repository layout (partial)
+
+```
+├── app.py                # Flask entry point + Gemini fallback logic
+├── store_index.py        # PDF ingestion → Pinecone
+├── src/
+│   ├── helper.py         # loaders, splitters, embeddings
+│   └── prompt.py         # system prompt
+├── templates/
+│   └── chat.html         # Bootstrap chat UI
+├── static/
+│   └── style.css
+└── data/
+    └── Medical_book.pdf
 ```
 
+---
 
-### Techstack Used:
+## License
 
-- Python
-- LangChain
-- Flask
-- GPT
-- Pinecone
-
-
-
-# AWS-CICD-Deployment-with-Github-Actions
-
-## 1. Login to AWS console.
-
-## 2. Create IAM user for deployment
-
-	#with specific access
-
-	1. EC2 access : It is virtual machine
-
-	2. ECR: Elastic Container registry to save your docker image in aws
-
-
-	#Description: About the deployment
-
-	1. Build docker image of the source code
-
-	2. Push your docker image to ECR
-
-	3. Launch Your EC2 
-
-	4. Pull Your image from ECR in EC2
-
-	5. Lauch your docker image in EC2
-
-	#Policy:
-
-	1. AmazonEC2ContainerRegistryFullAccess
-
-	2. AmazonEC2FullAccess
-
-	
-## 3. Create ECR repo to store/save docker image
-    - Save the URI: 315865595366.dkr.ecr.us-east-1.amazonaws.com/medicalbot
-
-	
-## 4. Create EC2 machine (Ubuntu) 
-
-## 5. Open EC2 and Install docker in EC2 Machine:
-	
-	
-	#optinal
-
-	sudo apt-get update -y
-
-	sudo apt-get upgrade
-	
-	#required
-
-	curl -fsSL https://get.docker.com -o get-docker.sh
-
-	sudo sh get-docker.sh
-
-	sudo usermod -aG docker ubuntu
-
-	newgrp docker
-	
-# 6. Configure EC2 as self-hosted runner:
-    setting>actions>runner>new self hosted runner> choose os> then run command one by one
-
-
-# 7. Setup github secrets:
-
-   - AWS_ACCESS_KEY_ID
-   - AWS_SECRET_ACCESS_KEY
-   - AWS_DEFAULT_REGION
-   - ECR_REPO
-   - PINECONE_API_KEY
-   - OPENAI_API_KEY
+See [LICENSE](LICENSE) for details.

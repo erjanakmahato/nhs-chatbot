@@ -16,5 +16,4 @@ rich<14
 langchain-huggingface
 pinecone
 google-genai
-youtube-transcript-api==0.6.2
 -e .
