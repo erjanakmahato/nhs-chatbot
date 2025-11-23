@@ -25,18 +25,34 @@ pip install -r requirements.txt
 ```
 
 
-### Create a `.env` file in the root directory and add your Pinecone & openai credentials as follows:
+### Create a `.env` file in the root directory and add your Pinecone & Google API credentials as follows:
 
 ```ini
 PINECONE_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-OPENAI_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+GOOGLE_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+GEMINI_MODEL = "gemini-pro"
 ```
+
+**Note:** 
+- `GEMINI_MODEL` is optional and defaults to `gemini-pro` (stable)
+- Other supported models: `gemini-1.5-pro`, `gemini-1.5-flash`
+- If you encounter model not found errors, try using `gemini-pro`
 
 
 ```bash
 # run the following command to store embeddings to pinecone
 python store_index.py
 ```
+
+### (Optional) Ingest YouTube video transcripts
+
+If the tutorial video references YouTube content you'd like to ground the chatbot on, you can pull the transcripts directly into the same Pinecone index:
+
+```bash
+python ingest_youtube.py https://www.youtube.com/watch?v=SCZ0BZq-jqY
+```
+
+This script caches transcripts under `data/youtube_transcripts/` and pushes the chunks into the `medical-chatbot` index so Gemini can cite those videos alongside the NHS PDFs.
 
 ```bash
 # Finally run the following command
