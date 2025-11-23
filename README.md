@@ -26,6 +26,101 @@ Gemini-powered Retrieval-Augmented Generation (RAG) chatbot that answers medical
 
 ---
 
+## Diagrams
+
+### UML Component Diagram
+
+```mermaid
+flowchart LR
+    subgraph Frontend
+        UI[Bootstrap Chat UI]
+    end
+
+    subgraph Backend[Flask App]
+        Route[/app.py: /get handler/]
+        RAGChain[LangChain RAG Chain]
+        Prompt[Prompt Template]
+    end
+
+    subgraph DataPlane
+        Pinecone[(Pinecone Index)]
+        Embeddings[HuggingFace Embeddings]
+    end
+
+    subgraph LLM
+        Gemini[Google Gemini\n(ChatGoogleGenerativeAI)]
+    end
+
+    UI --> Route
+    Route --> RAGChain
+    RAGChain --> Pinecone
+    Pinecone --> RAGChain
+    RAGChain --> Gemini
+    Gemini --> Route
+    Route --> UI
+    Embeddings --> Pinecone
+```
+
+### Activity Diagram (User question flow)
+
+```mermaid
+flowchart TD
+    Start([User submits question]) --> Validate{Empty?}
+    Validate -- yes --> ErrorMsg[Return 400 error]
+    Validate -- no --> InvokeRAG[Invoke rag_chain.invoke]
+    InvokeRAG --> Success{Response OK?}
+    Success -- yes --> AppendSources[Append source list]
+    AppendSources --> Reply[Return answer to UI]
+    Success -- no --> RateLimit{429 / quota?}
+    RateLimit -- yes --> RetryLoop[Retry with backoff]
+    RetryLoop --> Fallback{Retries exhausted?}
+    Fallback -- yes --> SwitchModel[try_fallback_model()]
+    SwitchModel --> InvokeRAG
+    Fallback -- no --> InvokeRAG
+    RateLimit -- no --> ErrorHandler[Return error response]
+```
+
+### Use Case Diagram
+
+```mermaid
+flowchart LR
+    User((User))
+    subgraph System
+        UC1([Ask medical question])
+        UC2([View cited sources])
+        UC3([Refresh knowledge base])
+    end
+
+    Admin((Maintainer))
+
+    User --> UC1
+    User --> UC2
+    Admin --> UC3
+    UC3 -->|Runs| store_index[(store_index.py)]
+```
+
+### Workflow Diagram (Ingestion + Chat)
+
+```mermaid
+sequenceDiagram
+    participant Maintainer
+    participant StoreIndex.py
+    participant Pinecone
+    participant FlaskApp
+    participant Gemini
+
+    Maintainer->>StoreIndex.py: python store_index.py
+    StoreIndex.py->>Pinecone: Upsert embeddings
+    Maintainer->>FlaskApp: python app.py
+    User->>FlaskApp: POST /get (message)
+    FlaskApp->>Pinecone: Retrieve top-k chunks
+    FlaskApp->>Gemini: Prompt w/ context
+    Gemini->>FlaskApp: Answer text
+    FlaskApp->>User: Render answer + sources
+```
+
+---
+
 ## Prerequisites
 
 - Python **3.12**
@@ -128,3 +223,26 @@ Visit `http://localhost:8080` and start chatting. The Flask logs show which Gemi
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+---
+
+## Function Reference
+
+| File | Function | Purpose |
+| --- | --- | --- |
+| `app.py` | `_format_source_label(metadata)` | Formats readable labels for cited documents. |
+| `app.py` | `_build_sources_block(context_value)` | Builds the markdown “Sources” section appended to responses. |
+| `app.py` | `list_available_models()` | Lists Gemini models accessible via the API key. |
+| `app.py` | `test_model_with_google_genai(model_name)` | Verifies a Gemini model via the official SDK. |
+| `app.py` | `test_model(model_instance, model_name)` | Validates a LangChain Gemini instance with timeout + quota handling. |
+| `app.py` | `expand_model_variants(model_name)` | Generates canonical + `-latest` variants for Gemini model names. |
+| `app.py` | `initialize_model(start_index=0)` | Iterates through candidate models and initializes the first viable one. |
+| `app.py` | `rebuild_rag_chain()` | Recreates the LangChain retrieval chain after model switches. |
+| `app.py` | `try_fallback_model(reason)` | Attempts to switch to the next Gemini model when quota/404 errors occur. |
+| `app.py` | `index()` | Serves the chat UI (`GET /`). |
+| `app.py` | `chat()` | Main chat endpoint (`POST /get`) with retry, fallback, and error handling. |
+| `store_index.py` | `load_pdf_file(data)` | Loads PDFs from the `data/` directory. |
+| `store_index.py` | `filter_to_minimal_docs(docs)` | Normalizes document metadata before chunking. |
+| `store_index.py` | `text_split(extracted_data)` | Splits documents into overlapping chunks. |
+| `store_index.py` | `download_hugging_face_embeddings()` | Returns the MiniLM embedding model. |
+| `store_index.py` | (script body) | Uploads embedded chunks into the Pinecone index. |
