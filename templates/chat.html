@@ -132,7 +132,7 @@
 						},
 						type: "POST",
 						url: "/get",
-						timeout: 60000 // 60 second timeout
+						timeout: 120000 // 120 second timeout (allows time for RAG + Gemini fallback)
 					}).done(function(data, textStatus, xhr) {
 						removeTypingIndicator();
 						
