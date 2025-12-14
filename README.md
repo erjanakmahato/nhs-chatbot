@@ -30,163 +30,262 @@ Gemini-powered Retrieval-Augmented Generation (RAG) chatbot that answers medical
 
 ### System Architecture
 
-```
-┌─────────┐         ┌──────────────┐         ┌───────────────┐
-│  User   │────────▶│  Flask Web   │────────▶│ Flask Backend │
-│ Browser │  HTTP   │  UI (HTML)   │  POST   │   (app.py)    │
-└─────────┘         └──────────────┘  /get   └───────┬───────┘
-                                                      │
-                                                      ▼
-                                            ┌─────────────────┐
-                                            │  LangChain RAG  │
-                                            │     Chain       │
-                                            └────┬───────┬────┘
-                                                 │       │
-                        ┌────────────────────────┘       └──────────────────┐
-                        ▼                                                   ▼
-                ┌───────────────┐                              ┌─────────────────┐
-                │   Pinecone    │◀─────────────────────────────│ Google Gemini   │
-                │ Vector Store  │     Retrieve Context         │      API        │
-                │(medical-bot)  │                              │ (gemini-pro...)│
-                └───────┬───────┘                              └─────────────────┘
-                        ▲
-                        │
-                ┌───────┴────────┐
-                │  HuggingFace   │
-                │   Embeddings   │
-                │ (MiniLM-L6-v2) │
-                └────────────────┘
-                        ▲
-                        │
-                ┌───────┴────────┐
-                │   NHS PDFs     │
-                │    (data/)     │
-                └────────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["🖥️ Client Layer"]
+        User["👤 User Browser"]
+    end
+    
+    subgraph Web["🌐 Web Layer"]
+        FlaskUI["📄 Flask Web UI\n(chat.html)"]
+    end
+    
+    subgraph Backend["⚙️ Backend Layer"]
+        FlaskApp["🐍 Flask Backend\n(app.py)"]
+        RAG["🔗 LangChain RAG Chain"]
+    end
+    
+    subgraph External["☁️ External Services"]
+        Pinecone["🌲 Pinecone\nVector Store\n(medical-chatbot)"]
+        Gemini["🤖 Google Gemini API\n(gemini-pro, gemini-1.5-pro...)"]
+    end
+    
+    subgraph Embeddings["🧠 Embedding Layer"]
+        HuggingFace["🤗 HuggingFace\nEmbeddings\n(MiniLM-L6-v2)"]
+    end
+    
+    subgraph Data["📁 Data Layer"]
+        PDFs["📚 NHS PDFs\n(data/)"]
+    end
+    
+    User -->|"HTTP Request"| FlaskUI
+    FlaskUI -->|"POST /get"| FlaskApp
+    FlaskApp --> RAG
+    RAG -->|"Query Embeddings"| HuggingFace
+    HuggingFace -->|"Vector Search"| Pinecone
+    Pinecone -->|"Retrieved Context"| RAG
+    RAG -->|"Prompt + Context"| Gemini
+    Gemini -->|"Generated Response"| RAG
+    PDFs -->|"Ingestion"| HuggingFace
+    HuggingFace -->|"Store Vectors"| Pinecone
 ```
 
 ### Activity Flow
 
-```
-        ┌─────────────────────────────────┐
-        │ User enters medical question    │
-        └────────────┬────────────────────┘
-                     ▼
-        ┌─────────────────────────────────┐
-        │ Flask receives POST /get        │
-        └────────────┬────────────────────┘
-                     ▼
-        ┌─────────────────────────────────┐
-        │ Embed query (HuggingFace)       │
-        └────────────┬────────────────────┘
-                     ▼
-        ┌─────────────────────────────────┐
-        │ Search Pinecone (top-k chunks)  │
-        └────────────┬────────────────────┘
-                     ▼
-        ┌─────────────────────────────────┐
-        │ Build prompt with context       │
-        └────────────┬────────────────────┘
-                     ▼
-        ┌─────────────────────────────────┐
-        │ Call Gemini API                 │
-        └────────────┬────────────────────┘
-                     ▼
-                ┌────────┐
-                │ Quota  │
-                │exceeded│
-                └───┬─┬──┘
-                    │ │
-              Yes   │ │  No
-                    │ │
-        ┌───────────┘ └──────────────┐
-        ▼                            ▼
-┌──────────────────┐    ┌────────────────────────┐
-│ Fallback to next │    │ Extract answer         │
-│ Gemini model     │    └───────────┬────────────┘
-└────────┬─────────┘                ▼
-         │              ┌────────────────────────┐
-         │              │ Append source citations│
-         │              └───────────┬────────────┘
-         │                          ▼
-         │              ┌────────────────────────┐
-         └─────────────▶│ Return answer to UI    │
-                        └────────────────────────┘
+```mermaid
+flowchart TD
+    A["👤 User enters medical question"] --> B["📨 Flask receives POST /get"]
+    B --> C["🔢 Embed query\n(HuggingFace)"]
+    C --> D["🔍 Search Pinecone\n(top-k chunks)"]
+    D --> E["📝 Build prompt\nwith context"]
+    E --> F["🤖 Call Gemini API"]
+    F --> G{"⚠️ Quota\nexceeded?"}
+    
+    G -->|"Yes"| H["🔄 Fallback to\nnext Gemini model"]
+    G -->|"No"| I["✅ Extract answer"]
+    
+    H --> F
+    I --> J["📎 Append source\ncitations"]
+    J --> K["📤 Return answer\nto UI"]
+    
+    style A fill:#e1f5fe
+    style K fill:#c8e6c9
+    style G fill:#fff3e0
+    style H fill:#ffecb3
 ```
 
-### Use Cases
+### Use Case Diagram
 
-```
-┌──────────┐                                              ┌────────────┐
-│ End User │                                              │   Gemini   │
-│          │                                              │    API     │
-└────┬─────┘                                              └─────┬──────┘
-     │                                                          │
-     │  ┌───────────────────────────────────────────────┐      │
-     │  │         NHS Chatbot System                    │      │
-     │  │                                               │      │
-     ├──┼──▶ ◯ Ask Medical Question                    │      │
-     │  │         │                                     │      │
-     │  │         ├──▶ ◯ Retrieve Relevant Context     │      │
-     │  │         │         │                           │      │
-     │  │         │         ├──▶ ◯ Generate AI Response│◀─────┤
-     │  │         │         │         │                 │      │
-     │  │         │         │         └──▶ ◯ Handle    │◀─────┤
-     │  │         │         │              Quota Errors │      │
-     │  │         │         │                           │      │
-     ├──┼──▶ ◯ Display Answer with Sources              │      │
-     │  │                                               │      │
-     │  └───────────────────────────────────────────────┘      │
-     │                                                          │
-┌────┴──────────┐                                              │
-│ Administrator │                                              │
-│               │                                              │
-└───────┬───────┘                                              │
-        │                                                      │
-        └──▶ ◯ Ingest PDF Documents                           │
+```mermaid
+flowchart LR
+    subgraph Actors["Actors"]
+        User["👤 End User"]
+        Admin["🔧 Administrator"]
+        GeminiAPI["🤖 Gemini API"]
+    end
+    
+    subgraph System["NHS Chatbot System"]
+        UC1(("🗣️ Ask Medical\nQuestion"))
+        UC2(("🔍 Retrieve Relevant\nContext"))
+        UC3(("💬 Generate AI\nResponse"))
+        UC4(("⚠️ Handle Quota\nErrors"))
+        UC5(("📋 Display Answer\nwith Sources"))
+        UC6(("📄 Ingest PDF\nDocuments"))
+    end
+    
+    User --> UC1
+    User --> UC5
+    Admin --> UC6
+    
+    UC1 -.->|"<<include>>"| UC2
+    UC2 -.->|"<<include>>"| UC3
+    UC3 -.->|"<<extend>>"| UC4
+    
+    UC3 --> GeminiAPI
+    UC4 --> GeminiAPI
+    
+    style UC1 fill:#bbdefb
+    style UC2 fill:#c8e6c9
+    style UC3 fill:#fff9c4
+    style UC4 fill:#ffccbc
+    style UC5 fill:#d1c4e9
+    style UC6 fill:#f8bbd9
 ```
 
-### Sequence Flow
+### Sequence Diagram
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 👤 User
+    participant UI as 📄 Flask UI
+    participant App as ⚙️ app.py
+    participant PC as 🌲 Pinecone
+    participant G as 🤖 Gemini API
+
+    U->>UI: Enter medical question
+    UI->>App: POST /get
+    
+    rect rgb(240, 248, 255)
+        Note over App: Embedding Phase
+        App->>App: Embed query (HuggingFace)
+    end
+    
+    rect rgb(240, 255, 240)
+        Note over App,PC: Retrieval Phase
+        App->>PC: Vector search query
+        PC-->>App: Return top-k context chunks
+    end
+    
+    rect rgb(255, 248, 240)
+        Note over App: Prompt Building
+        App->>App: Build prompt with context
+    end
+    
+    rect rgb(255, 255, 240)
+        Note over App,G: Generation Phase
+        App->>G: Send prompt for generation
+        
+        alt Success
+            G-->>App: Return generated answer
+        else Quota Error (429)
+            G-->>App: ResourceExhausted error
+            App->>App: Try fallback model
+            App->>G: Retry with next model
+            G-->>App: Return generated answer
+        end
+    end
+    
+    rect rgb(240, 240, 255)
+        Note over App: Response Formatting
+        App->>App: Format response + citations
+    end
+    
+    App-->>UI: JSON response
+    UI-->>U: Display answer with sources
 ```
-User    Flask UI    app.py    Pinecone    Gemini API
- │          │          │           │            │
- ├─────────▶│          │           │            │
- │ 1. Enter │          │           │            │
- │ question │          │           │            │
- │          ├─────────▶│           │            │
- │          │ 2. POST  │           │            │
- │          │   /get   │           │            │
- │          │          ├──────┐    │            │
- │          │          │ 3.   │    │            │
- │          │          │ Embed│    │            │
- │          │          │◀─────┘    │            │
- │          │          ├──────────▶│            │
- │          │          │ 4. Search │            │
- │          │          │◀──────────┤            │
- │          │          │ 5. Context│            │
- │          │          ├──────┐    │            │
- │          │          │ 6.   │    │            │
- │          │          │ Build│    │            │
- │          │          │◀─────┘    │            │
- │          │          ├───────────────────────▶│
- │          │          │ 7. Generate answer     │
- │          │          │                        │
- │          │          │    ┌──────────────────┐│
- │          │          │    │ [Success]        ││
- │          │          │◀───┤ 8. Return answer ││
- │          │          │    └──────────────────┘│
- │          │          │    ┌──────────────────┐│
- │          │          │    │ [Quota Error]    ││
- │          │          ├───▶│ 9. Try next model││
- │          │          │    └──────────────────┘│
- │          │          ├──────┐    │            │
- │          │          │ 10.  │    │            │
- │          │          │Format│    │            │
- │          │          │◀─────┘    │            │
- │          │◀─────────┤           │            │
- │          │11. JSON  │           │            │
- │◀─────────┤          │           │            │
- │12. Display          │           │            │
+
+### Class Diagram
+
+```mermaid
+classDiagram
+    class FlaskApp {
+        +index() HTML
+        +chat() JSON
+        -_format_source_label(metadata) str
+        -_build_sources_block(context) str
+    }
+    
+    class GeminiManager {
+        +list_available_models() list
+        +test_model_with_google_genai(name) bool
+        +test_model(instance, name) bool
+        +expand_model_variants(name) list
+        +initialize_model(start_index) Model
+        +rebuild_rag_chain() Chain
+        +try_fallback_model(reason) bool
+    }
+    
+    class StoreIndex {
+        +load_pdf_file(data) Documents
+        +filter_to_minimal_docs(docs) Documents
+        +text_split(data) Chunks
+        +download_hugging_face_embeddings() Embeddings
+    }
+    
+    class Helper {
+        +load_pdf_file(data) Documents
+        +text_split(data) Chunks
+        +download_hugging_face_embeddings() Embeddings
+    }
+    
+    class Prompt {
+        +system_prompt str
+    }
+    
+    class PineconeStore {
+        <<external>>
+        +upsert(vectors)
+        +query(vector, top_k)
+    }
+    
+    class GeminiAPI {
+        <<external>>
+        +generate(prompt)
+    }
+    
+    FlaskApp --> GeminiManager : uses
+    FlaskApp --> Helper : uses
+    FlaskApp --> Prompt : uses
+    GeminiManager --> GeminiAPI : calls
+    StoreIndex --> Helper : uses
+    StoreIndex --> PineconeStore : stores vectors
+    FlaskApp --> PineconeStore : queries
+```
+
+### Component Diagram
+
+```mermaid
+flowchart TB
+    subgraph Frontend["🎨 Frontend Components"]
+        HTML["chat.html\n(Bootstrap UI)"]
+        CSS["style.css\n(Styling)"]
+    end
+    
+    subgraph Backend["🔧 Backend Components"]
+        App["app.py\n(Flask Server)"]
+        Helper["helper.py\n(Utilities)"]
+        PromptMod["prompt.py\n(System Prompt)"]
+    end
+    
+    subgraph Ingestion["📥 Data Ingestion"]
+        Store["store_index.py\n(PDF Processing)"]
+        Data["data/\n(NHS PDFs)"]
+    end
+    
+    subgraph External["☁️ External Services"]
+        Pine["Pinecone\n(Vector DB)"]
+        Gem["Google Gemini\n(LLM)"]
+        HF["HuggingFace\n(Embeddings)"]
+    end
+    
+    HTML --> App
+    CSS --> HTML
+    App --> Helper
+    App --> PromptMod
+    App --> Pine
+    App --> Gem
+    App --> HF
+    
+    Store --> Data
+    Store --> Helper
+    Store --> Pine
+    Store --> HF
+    
+    style Frontend fill:#e3f2fd
+    style Backend fill:#f3e5f5
+    style Ingestion fill:#e8f5e9
+    style External fill:#fff3e0
 ```
 
 ---
